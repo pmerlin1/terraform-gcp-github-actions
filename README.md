@@ -8,4 +8,5 @@ The workflow file has been updated to use the newer `google-github-actions/auth`
 
 ## Future reading
 GitHub action: https://github.com/google-github-actions/auth
+
 GCP documentation for WIF: https://cloud.google.com/iam/docs/workload-identity-federation
