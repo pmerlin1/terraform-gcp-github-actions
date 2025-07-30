@@ -1,30 +1,30 @@
-name: 'Terraform CI'
+name: 'Terraform Deploy'
 
 on:
   push:
     branches:
       - main
-    pull_request:
+  pull_request:
 
 jobs:
-  job_id:
+  terraform-deploy:
     runs-on: ubuntu-latest
-    name: Terraform
+    name: Terraform Deployment
     permissions:
       contents: 'read'
       id-token: 'write'
 
     steps:
-    - uses: 'actions/checkout@v3'
+    - uses: 'actions/checkout@v4'
 
     - name: 'Authenticate to Google Cloud via Workload Identity Federation'
-      uses: 'google-github-actions/auth@v1'
+      uses: 'google-github-actions/auth@v2'
       with:
         workload_identity_provider: 'projects/changeme-project/locations/global/workloadIdentityPools/workload-pool-github/providers/my-provider'
         service_account: 'sacct-changeme'
-    
+
     - name: Setup Terraform
-      uses: hashicorp/setup-terraform@v2
+      uses: hashicorp/setup-terraform@v3
 
     - name: Terraform Init
       run: terraform init
