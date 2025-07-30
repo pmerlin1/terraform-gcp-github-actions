@@ -1,0 +1,118 @@
+name: 'Terraform Security Scanning'
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  terraform-security:
+    runs-on: ubuntu-latest
+    name: Security Scanning
+    permissions:
+      contents: 'read'
+      id-token: 'write'
+      security-events: 'write'  # For uploading SARIF results
+      pull-requests: 'write'    # For PR comments
+
+    steps:
+    - uses: 'actions/checkout@v4'
+
+    - name: 'Authenticate to Google Cloud via Workload Identity Federation'
+      uses: 'google-github-actions/auth@v2'
+      with:
+        workload_identity_provider: 'projects/changeme-project/locations/global/workloadIdentityPools/workload-pool-github/providers/my-provider'
+        service_account: 'sacct-changeme'
+
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v3
+
+    - name: Terraform Init
+      run: terraform init
+
+    - name: Terraform Format Check
+      run: terraform fmt -check -recursive
+
+    - name: Terraform Validate
+      run: terraform validate
+
+    - name: TFLint
+      uses: terraform-linters/setup-tflint@v4
+      with:
+        tflint_version: latest
+
+    - name: Init TFLint
+      run: tflint --init
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
+
+    - name: Run TFLint
+      run: tflint -f compact
+
+    # tfsec by Aqua Security
+    - name: Run tfsec
+      uses: aquasecurity/tfsec-action@v1.0.3
+      with:
+        soft_fail: true
+        format: sarif
+        out: tfsec-results.sarif
+
+    - name: Upload tfsec results to GitHub Security
+      if: success() || failure()
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: tfsec-results.sarif
+        category: tfsec
+
+    # Checkov for additional security scanning
+    - name: Checkov Security Scan
+      id: checkov
+      uses: bridgecrewio/checkov-action@v12
+      with:
+        directory: .
+        soft_fail: true
+        framework: terraform
+        output_format: sarif
+        output_file_path: checkov-results.sarif
+
+    - name: Upload Checkov results to GitHub Security
+      if: success() || failure()
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: checkov-results.sarif
+        category: checkov
+
+    # Comment PR with security findings (only on PRs)
+    - name: Comment PR with tfsec findings
+      if: github.event_name == 'pull_request'
+      uses: aquasecurity/tfsec-pr-commenter-action@v1.3.1
+      with:
+        github_token: ${{ github.token }}
+        tfsec_args: --soft-fail
+
+    - name: Terraform Plan
+      run: terraform plan -out=tfplan
+
+    - name: Terraform Show
+      run: terraform show -json tfplan > tfplan.json
+
+    # Infracost for cost analysis
+    - name: Setup Infracost
+      uses: infracost/actions/setup@v3
+      with:
+        api-key: ${{ secrets.INFRACOST_API_KEY }}
+
+    - name: Generate Infracost cost estimate
+      if: github.event_name == 'pull_request'
+      run: |
+        infracost breakdown --path tfplan.json \
+          --format json \
+          --out-file /tmp/infracost.json
+
+    - name: Post Infracost comment
+      if: github.event_name == 'pull_request'
+      uses: infracost/actions/comment@v3
+      with:
+        path: /tmp/infracost.json
+        behavior: update
